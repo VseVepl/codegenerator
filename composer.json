@@ -1,0 +1,45 @@
+{
+    "name": "vse/codegenerator",
+    "description": "A robust, flexible, and pattern-based unique code generator for Laravel applications.",
+    "type": "laravel-package",
+    "version": "1.0.0",
+    "keywords": [
+        "laravel",
+        "code-generator",
+        "unique-codes",
+        "sequence-generator",
+        "invoice-numbers",
+        "order-ids",
+        "tracking-ids"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Avinash",
+            "email": "a7507980750@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^10.0|^11.0",
+        "illuminate/database": "^10.0|^11.0",
+        "illuminate/contracts": "^10.0|^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "VsE\\Codegenerator\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "VsE\\Codegenerator\\CodeGeneratorServiceProvider"
+            ],
+            "aliases": {
+                "CodeGenerator": "VsE\\Codegenerator\\Facades\\CodeGenerator"
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
