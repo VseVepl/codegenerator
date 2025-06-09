@@ -1,39 +1,82 @@
 <?php
 
-namespace VsE\Codegenerator;
+namespace Vsent\CodeGenerator;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
 use DateTimeInterface;
+use Carbon\Carbon;
 
 /**
- * Robust Unique Code Generator with Conservative Sequence Management and Dynamic Patterns.
+ * Robust Unique Code Generator with Conservative Sequence Management
  *
- * Features:
- * - Thread-safe code generation using database locks and optimistic concurrency.
- * - Conservative sequence reservation (only commits used sequences via confirmUsage()).
- * - Supports dynamic code patterns with various placeholders ({TYPE}, {LOCATION}, {DATE}, {TIME}, {SEQUENCE}, {RANDOM}, {UUID}).
- * - Automatic retry mechanism with exponential backoff for concurrency conflicts.
- * - Configurable global defaults and pattern-specific overrides.
- * - Optional enforcement of total code length.
+ * Provides thread-safe, pattern-based code generation with support for various placeholders,
+ * sequence management, and configurable patterns. Key features include:
+ *
+ * - Atomic sequence reservation with optimistic concurrency control
+ * - Automatic retry with exponential backoff
+ * - Support for {TYPE}, {LOCATION}, {DATE}, {TIME}, {SEQUENCE}, {RANDOM}, {UUID} placeholders
+ * - Configurable patterns with runtime overrides
+ * - Strict length enforcement
+ * - Database-backed sequence tracking
+ *
+ * @package Vsent\CodeGenerator
  */
 class CodeGenerator
 {
-    // Configuration properties, initialized with defaults from config file or explicit setters
+    /**
+     * @var string Default code type prefix
+     */
     protected string $type;
+
+    /**
+     * @var string Default location code
+     */
     protected string $location;
+
+    /**
+     * @var int Default sequence padding length
+     */
     protected int $sequenceLength;
+
+    /**
+     * @var string Default date format
+     */
     protected string $dateFormat;
+
+    /**
+     * @var string Default time format
+     */
     protected string $timeFormat;
-    protected ?int $codeLength; // Nullable for optional total code length enforcement
+
+    /**
+     * @var int|null Enforced total code length
+     */
+    protected ?int $codeLength;
+
+    /**
+     * @var int Max generation attempts
+     */
     protected int $maxAttempts;
+
+    /**
+     * @var int Initial retry delay (ms)
+     */
     protected int $retryDelay;
+
+    /**
+     * @var string Active pattern template
+     */
     protected string $pattern;
+
+    /**
+     * @var bool Whether to use sequence tracking
+     */
     protected bool $useSequence;
 
     /**
-     * Initializes the CodeGenerator with default configuration.
+     * Initialize with default configuration
      */
     public function __construct()
     {
@@ -41,7 +84,7 @@ class CodeGenerator
     }
 
     /**
-     * Loads default configuration from the 'codegenerator' config file.
+     * Load configuration defaults
      */
     protected function loadDefaultConfig(): void
     {
@@ -54,26 +97,24 @@ class CodeGenerator
         $this->maxAttempts = config('codegenerator.max_attempts', 5);
         $this->retryDelay = config('codegenerator.retry_delay', 150);
         $this->pattern = config('codegenerator.default_pattern', '{TYPE}-{DATE:ymd}-{SEQUENCE:4}');
-        // useSequence is dynamically determined based on pattern, but defaults to true for safety
         $this->useSequence = true;
     }
 
     /**
-     * Configures the generator based on a predefined pattern key from the config file.
-     * This method is called internally by the Facade's generateFor method.
+     * Configure generator from predefined pattern
      *
-     * @param string $codeTypeKey The key from the 'patterns' config array.
-     * @return $this
+     * @param string $codeTypeKey Configuration key from codegenerator.patterns
+     * @return self
+     * @throws RuntimeException If pattern not found
      */
     public function setPatternConfig(string $codeTypeKey): self
     {
-        $patternConfig = config('codegenerator.patterns.' . $codeTypeKey);
+        $patternConfig = config("codegenerator.patterns.{$codeTypeKey}");
 
         if (!$patternConfig) {
             throw new RuntimeException("Code pattern '{$codeTypeKey}' not found in configuration.");
         }
 
-        // Apply specific pattern configurations, falling back to defaults if not set
         $this->pattern = $patternConfig['pattern'] ?? $this->pattern;
         $this->type = $patternConfig['type'] ?? $this->type;
         $this->location = $patternConfig['location'] ?? $this->location;
@@ -84,19 +125,19 @@ class CodeGenerator
         $this->maxAttempts = $patternConfig['max_attempts'] ?? $this->maxAttempts;
         $this->retryDelay = $patternConfig['retry_delay'] ?? $this->retryDelay;
 
-        // Determine useSequence: If pattern contains {SEQUENCE}, it's true unless explicitly false.
-        // Otherwise, it's false.
-        $this->useSequence = str_contains($this->pattern, '{SEQUENCE}') ?
-            ($patternConfig['use_sequence'] ?? true) : ($patternConfig['use_sequence'] ?? false);
+        // Determine sequence usage
+        $this->useSequence = str_contains($this->pattern, '{SEQUENCE}')
+            ? ($patternConfig['use_sequence'] ?? true)
+            : ($patternConfig['use_sequence'] ?? false);
 
         return $this;
     }
 
     /**
-     * Generates a unique code with automatic retry on conflicts for sequential patterns.
+     * Generate unique code with automatic retry
      *
-     * @return string The generated code.
-     * @throws RuntimeException After maximum retry attempts or if pattern is invalid.
+     * @return string Generated code
+     * @throws RuntimeException After max attempts
      */
     public function generate(): string
     {
@@ -110,326 +151,326 @@ class CodeGenerator
             } catch (RuntimeException $e) {
                 $lastException = $e;
                 $attempt++;
-                // Exponential backoff with jitter (adding randomness to retry delay)
-                usleep(($this->retryDelay * pow(2, $attempt - 1) + random_int(0, $this->retryDelay / 2)) * 1000);
+                $this->applyRetryDelay($attempt);
             }
         }
 
-        throw new RuntimeException(
-            'Failed to generate code after ' . $this->maxAttempts . ' attempts: ' .
-                ($lastException ? $lastException->getMessage() : 'Unknown error.'),
-            0,
-            $lastException
-        );
+        throw new RuntimeException(sprintf(
+            'Failed to generate code after %d attempts: %s',
+            $this->maxAttempts,
+            $lastException?->getMessage() ?? 'Unknown error'
+        ), 0, $lastException);
     }
 
     /**
-     * Performs a single attempt at code generation within a database transaction if sequencing is used.
+     * Apply exponential backoff with jitter
      *
-     * @return string The generated code.
-     * @throws RuntimeException On concurrency conflicts or database errors.
+     * @param int $attempt Current attempt number
+     */
+    protected function applyRetryDelay(int $attempt): void
+    {
+        $delay = $this->retryDelay * pow(2, $attempt - 1) + random_int(0, $this->retryDelay / 2);
+        usleep($delay * 1000);
+    }
+
+    /**
+     * Single generation attempt
+     *
+     * @return string Generated code
+     * @throws RuntimeException On concurrency conflict
      */
     protected function attemptGeneration(): string
     {
-        // If sequencing is enabled, wrap in a transaction for atomicity and locking.
-        if ($this->useSequence) {
-            return DB::transaction(function () {
-                $now = now();
-                $dateKey = $this->extractDateKeyFromPattern($now); // Use the date part relevant for the pattern
-                $record = $this->getOrCreateSequenceRecord($dateKey);
-
-                // Calculate next available sequence number
-                $sequence = $this->calculateNextSequence($record);
-
-                // Reserve the sequence by updating pending_sequence (optimistic concurrency)
-                $this->reserveSequence($record, $sequence);
-
-                // Generate and format the code using the pattern
-                return $this->formatCodeFromPattern($now, $sequence);
-            });
+        if (!$this->useSequence) {
+            return $this->formatCodeFromPattern(now(), 0);
         }
 
-        // If not using sequence, generate code directly from pattern without transaction
-        return $this->formatCodeFromPattern(now(), 0); // Sequence value is ignored for non-sequential patterns
+        return DB::transaction(function () {
+            $now = now();
+            $dateKey = $this->extractDateKeyFromPattern($now);
+            $record = $this->getOrCreateSequenceRecord($dateKey);
+            $sequence = $this->calculateNextSequence($record);
+
+            $this->reserveSequence($record, $sequence);
+            return $this->formatCodeFromPattern($now, $sequence);
+        });
     }
 
     /**
-     * Extracts the relevant date key from the pattern for sequence tracking.
-     * E.g., for {DATE:Ym}, returns 'YYYY-MM'. For {DATE:Y}, returns 'YYYY'.
+     * Extract date key for sequence tracking
      *
      * @param DateTimeInterface $dateTime
-     * @return string
+     * @return string Date component key
      */
     protected function extractDateKeyFromPattern(DateTimeInterface $dateTime): string
     {
         preg_match('/\{DATE:?([a-zA-Z0-9]+)?\}/', $this->pattern, $matches);
-        $format = $matches[1] ?? $this->dateFormat; // Use pattern-specific format or default
+        $format = $matches[1] ?? $this->dateFormat;
 
-        // Only return part of date relevant for sequence if it exists in pattern
-        // Otherwise, use a daily key if date part is not in pattern for sequence or full date for general
-        if (str_contains($this->pattern, '{DATE')) {
-            return $dateTime->format($format);
-        }
-        // If no date placeholder, use a fixed daily key for the sequence
-        return $dateTime->format('Y-m-d'); // Default to daily sequence if pattern has no date segment.
+        return str_contains($this->pattern, '{DATE')
+            ? $dateTime->format($format)
+            : $dateTime->format('Y-m-d');
     }
 
     /**
-     * Gets an existing sequence record or creates a new one with a lock.
+     * Get or create sequence record with lock
      *
-     * @param string $dateKey The date component used as part of the unique key for the sequence.
-     * @return \stdClass The database record.
+     * @param string $dateKey Date component
+     * @return \stdClass Database record
      */
     protected function getOrCreateSequenceRecord(string $dateKey): \stdClass
     {
-        // Use the pattern's type and location for the unique key, ensuring consistency
-        $type = $this->type;
-        $location = $this->location;
-
         $record = DB::table('code_sequences')
             ->where('date', $dateKey)
-            ->where('type', $type)
-            ->where('location', $location)
-            ->lockForUpdate() // Acquire an exclusive lock on this row
+            ->where('type', $this->type)
+            ->where('location', $this->location)
+            ->lockForUpdate()
             ->first();
 
-        if (!$record) {
-            $id = DB::table('code_sequences')->insertGetId([
-                'date' => $dateKey,
-                'type' => $type,
-                'location' => $location,
-                'sequence' => 0,          // Initial confirmed sequence
-                'pending_sequence' => null, // No pending sequence initially
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-            // Retrieve the newly created record to ensure consistent object structure
-            $record = (object) DB::table('code_sequences')->where('id', $id)->first();
+        if ($record) {
+            return $record;
         }
 
-        return $record;
+        $id = DB::table('code_sequences')->insertGetId([
+            'date' => $dateKey,
+            'type' => $this->type,
+            'location' => $this->location,
+            'sequence' => 0,
+            'pending_sequence' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (object) DB::table('code_sequences')->find($id);
     }
 
     /**
-     * Calculates the next available sequence number.
+     * Calculate next sequence number
      *
-     * @param \stdClass $record The current sequence record.
-     * @return int The next sequence number.
+     * @param \stdClass $record Sequence record
+     * @return int Next sequence
      */
     protected function calculateNextSequence(\stdClass $record): int
     {
-        // The next sequence is max of last confirmed + 1, or last pending + 1.
-        // This handles cases where a pending sequence was reserved but not confirmed,
-        // ensuring we always pick up from the highest previously attempted number.
         return max($record->sequence, (int)$record->pending_sequence) + 1;
     }
 
     /**
-     * Reserves a sequence number by updating the pending_sequence field.
-     * Includes an optimistic concurrency check.
+     * Reserve sequence with optimistic lock
      *
-     * @param \stdClass $record The current sequence record (before update).
-     * @param int $sequence The sequence number to reserve.
-     * @throws RuntimeException If the record was modified by another process (concurrency conflict).
+     * @param \stdClass $record Current record
+     * @param int $sequence Sequence to reserve
+     * @throws RuntimeException On concurrency conflict
      */
     protected function reserveSequence(\stdClass $record, int $sequence): void
     {
-        // Optimistic concurrency control: ensure the record hasn't changed since we fetched it.
         $updated = DB::table('code_sequences')
             ->where('id', $record->id)
-            ->where('sequence', $record->sequence)             // Check last confirmed value
-            ->where('pending_sequence', $record->pending_sequence) // Check last pending value
+            ->where('sequence', $record->sequence)
+            ->where('pending_sequence', $record->pending_sequence)
             ->update([
                 'pending_sequence' => $sequence,
                 'updated_at' => now()
             ]);
 
         if ($updated === 0) {
-            // This indicates another process modified the record between our fetch and update.
-            throw new RuntimeException('Sequence record was modified by another process. Retrying...');
+            throw new RuntimeException('Sequence record modified by another process');
         }
     }
 
     /**
-     * Formats the code based on the configured pattern and generated values.
+     * Format code from pattern
      *
-     * @param DateTimeInterface $dateTime The current timestamp.
-     * @param int $sequence The generated sequence number (0 if not applicable).
-     * @return string The formatted code string.
+     * @param DateTimeInterface $dateTime Current time
+     * @param int $sequence Sequence number
+     * @return string Formatted code
      */
     protected function formatCodeFromPattern(DateTimeInterface $dateTime, int $sequence): string
     {
-        $code = $this->pattern;
+        $replacements = [
+            '{TYPE}' => $this->type,
+            '{LOCATION}' => $this->location,
+            '{UUID}' => Str::uuid()->toString(),
+        ];
 
-        // Replace {TYPE}
-        $code = str_replace('{TYPE}', $this->type, $code);
+        $code = str_replace(array_keys($replacements), array_values($replacements), $this->pattern);
 
-        // Replace {LOCATION}
-        $code = str_replace('{LOCATION}', $this->location, $code);
-
-        // Replace {DATE:format}
-        $code = preg_replace_callback('/\{DATE:?([a-zA-Z0-9]+)?\}/', function ($matches) use ($dateTime) {
-            $format = $matches[1] ?? $this->dateFormat;
-            return $dateTime->format($format);
+        $code = preg_replace_callback('/\{DATE:?([a-zA-Z0-9]+)?\}/', function ($m) use ($dateTime) {
+            return $dateTime->format($m[1] ?? $this->dateFormat);
         }, $code);
 
-        // Replace {TIME:format}
-        $code = preg_replace_callback('/\{TIME:?([a-zA-Z0-9]+)?\}/', function ($matches) use ($dateTime) {
-            $format = $matches[1] ?? $this->timeFormat;
-            return $dateTime->format($format);
+        $code = preg_replace_callback('/\{TIME:?([a-zA-Z0-9]+)?\}/', function ($m) use ($dateTime) {
+            return $dateTime->format($m[1] ?? $this->timeFormat);
         }, $code);
 
-        // Replace {SEQUENCE:length}
-        // This should only be present if $this->useSequence is true
         if ($this->useSequence) {
-            $code = preg_replace_callback('/\{SEQUENCE:?([0-9]+)?\}/', function ($matches) use ($sequence) {
-                $length = $matches[1] ?? $this->sequenceLength;
+            $code = preg_replace_callback('/\{SEQUENCE:?(\d+)?\}/', function ($m) use ($sequence) {
+                $length = $m[1] ?? $this->sequenceLength;
                 return str_pad($sequence, (int)$length, '0', STR_PAD_LEFT);
             }, $code);
         } else {
-            // Remove {SEQUENCE} placeholder if useSequence is false
-            $code = preg_replace('/\{SEQUENCE:?[0-9]+?\}/', '', $code);
+            $code = preg_replace('/\{SEQUENCE:?\d+?\}/', '', $code);
         }
 
-
-        // Replace {RANDOM:length}
-        $code = preg_replace_callback('/\{RANDOM:([0-9]+)\}/', function ($matches) {
-            return Str::random((int)$matches[1]);
-        }, $code);
-
-        // Replace {UUID}
-        $code = str_replace('{UUID}', Str::uuid()->toString(), $code);
+        $code = preg_replace_callback('/\{RANDOM:(\d+)\}/', fn($m) => Str::random((int)$m[1]), $code);
 
         return $code;
     }
 
     /**
-     * Applies final length enforcement to the generated code.
+     * Apply final length constraints
      *
-     * @param string $code The generated code before finalization.
-     * @return string The finalized (padded/truncated) code.
+     * @param string $code Generated code
+     * @return string Finalized code
      */
     protected function finalizeCode(string $code): string
     {
-        if (is_int($this->codeLength) && $this->codeLength > 0) {
-            if (strlen($code) < $this->codeLength) {
-                // Pad with zeros to the right if shorter
-                return str_pad($code, $this->codeLength, '0', STR_PAD_RIGHT);
-            } elseif (strlen($code) > $this->codeLength) {
-                // Truncate if longer
-                return substr($code, 0, $this->codeLength);
-            }
+        if (!is_int($this->codeLength)) {
+            return $code;
         }
-        return $code;
+
+        $length = $this->codeLength;
+
+        return match (true) {
+            strlen($code) < $length => str_pad($code, $length, '0', STR_PAD_RIGHT),
+            strlen($code) > $length => substr($code, 0, $length),
+            default => $code
+        };
     }
 
-
     /**
-     * Confirms the usage of a generated sequential code.
-     * This moves the 'pending_sequence' to 'sequence' in the database,
-     * marking the code as officially used.
+     * Confirm usage of sequential code
      *
-     * @param string $code The code to confirm.
-     * @return bool True if confirmation succeeded, false otherwise.
-     * @throws RuntimeException If the code format is invalid or cannot be parsed.
+     * @param string $code Generated code
+     * @return bool Confirmation success
      */
     public function confirmUsage(string $code): bool
     {
+        if (!$this->useSequence) {
+            return true; // No confirmation needed for non-sequential codes
+        }
+
         return DB::transaction(function () use ($code) {
             $components = $this->parseCode($code);
             $parsedSequence = (int) $components['sequence'];
+            $confirmationDateKey = $this->getConfirmationDateKey();
 
-            // Determine the date key to use for confirmation based on the original pattern's date format
-            $now = now();
-            preg_match('/\{DATE:?([a-zA-Z0-9]+)?\}/', $this->pattern, $matches);
-            $confirmationDateKeyFormat = $matches[1] ?? $this->dateFormat;
-            $confirmationDateKey = $now->format($confirmationDateKeyFormat);
-
-            // If pattern doesn't contain date, use daily key as default fallback for sequence
-            if (!str_contains($this->pattern, '{DATE')) {
-                $confirmationDateKey = $now->format('Y-m-d');
-            }
-
-
-            // The `where` clauses must precisely match the unique index on `date`, `type`, `location`.
-            // The `pending_sequence` check ensures that we only confirm the specific code that was last reserved.
-            $updated = DB::table('code_sequences')
-                ->where('date', $confirmationDateKey)
-                ->where('type', $components['type'])
-                ->where('location', $components['location'])
-                ->where('pending_sequence', $parsedSequence) // Only confirm if it's the specific pending sequence
-                ->update([
-                    'sequence' => $parsedSequence,      // Move pending to confirmed sequence
-                    'pending_sequence' => null,         // Clear the pending sequence
-                    'updated_at' => now()
-                ]);
-
-            return $updated > 0;
+            return $this->updateSequenceRecord(
+                $confirmationDateKey,
+                $components['type'],
+                $components['location'],
+                $parsedSequence
+            ) > 0;
         });
     }
 
     /**
-     * Parses a generated code string back into its components based on the active pattern.
-     * This method relies on the current `pattern` configuration of the generator instance.
+     * Get date key for confirmation
      *
-     * @param string $code The code string to parse.
-     * @return array Associative array of parsed components (type, date, location, time, sequence, random, uuid).
-     * @throws RuntimeException If the code does not match the active pattern's expected format.
+     * @return string Date key
+     */
+    protected function getConfirmationDateKey(): string
+    {
+        preg_match('/\{DATE:?([a-zA-Z0-9]+)?\}/', $this->pattern, $matches);
+        $format = $matches[1] ?? $this->dateFormat;
+
+        return str_contains($this->pattern, '{DATE')
+            ? now()->format($format)
+            : now()->format('Y-m-d');
+    }
+
+    /**
+     * Update sequence record on confirmation
+     *
+     * @param string $dateKey Date component
+     * @param string $type Code type
+     * @param string $location Location code
+     * @param int $sequence Sequence number
+     * @return int Number of updated rows
+     */
+    protected function updateSequenceRecord(
+        string $dateKey,
+        string $type,
+        string $location,
+        int $sequence
+    ): int {
+        return DB::table('code_sequences')
+            ->where('date', $dateKey)
+            ->where('type', $type)
+            ->where('location', $location)
+            ->where('pending_sequence', $sequence)
+            ->update([
+                'sequence' => $sequence,
+                'pending_sequence' => null,
+                'updated_at' => now()
+            ]);
+    }
+
+    /**
+     * Parse code into components
+     *
+     * @param string $code Generated code
+     * @return array Parsed components
+     * @throws RuntimeException On pattern mismatch
      */
     protected function parseCode(string $code): array
     {
-        $components = [];
-        $pattern = $this->pattern;
-        $tempPattern = $pattern; // Use a temporary pattern for matching
+        $pattern = preg_quote($this->pattern, '/');
+        $pattern = $this->convertPlaceholdersToRegex($pattern);
 
-        // Escape static parts of the pattern for regex
-        $tempPattern = preg_quote($tempPattern, '/');
-
-        // Replace placeholders with named regex capture groups
-        $tempPattern = str_replace(preg_quote('{TYPE}', '/'), '(?<type>[A-Z0-9]+)', $tempPattern);
-        $tempPattern = str_replace(preg_quote('{LOCATION}', '/'), '(?<location>[A-Z0-9]+)', $tempPattern);
-        $tempPattern = preg_replace('/' . preg_quote('{DATE:', '/') . '([a-zA-Z0-9]+)' . preg_quote('}', '/') . '/', '(?<date>[0-9A-Za-z]+)', $tempPattern);
-        $tempPattern = str_replace(preg_quote('{DATE}', '/'), '(?<date>[0-9A-Za-z]+)', $tempPattern); // for default date format
-        $tempPattern = preg_replace('/' . preg_quote('{TIME:', '/') . '([a-zA-Z0-9]+)' . preg_quote('}', '/') . '/', '(?<time>[0-9]+)', $tempPattern);
-        $tempPattern = str_replace(preg_quote('{TIME}', '/'), '(?<time>[0-9]+)', $tempPattern); // for default time format
-        $tempPattern = preg_replace('/' . preg_quote('{SEQUENCE:', '/') . '([0-9]+)' . preg_quote('}', '/') . '/', '(?<sequence>[0-9]+)', $tempPattern);
-        $tempPattern = str_replace(preg_quote('{SEQUENCE}', '/'), '(?<sequence>[0-9]+)', $tempPattern); // for default seq length
-        $tempPattern = preg_replace('/' . preg_quote('{RANDOM:', '/') . '([0-9]+)' . preg_quote('}', '/') . '/', '(?<random>[A-Za-z0-9]+)', $tempPattern);
-        $tempPattern = str_replace(preg_quote('{UUID}', '/'), '(?<uuid>[0-9a-fA-F-]+)', $tempPattern);
-
-        // Perform the regex match
-        if (!preg_match('/^' . $tempPattern . '$/', $code, $matches)) {
-            throw new RuntimeException("Code '{$code}' does not match the expected pattern '{$this->pattern}'.");
+        if (!preg_match("/^{$pattern}$/", $code, $matches)) {
+            throw new RuntimeException("Code does not match pattern '{$this->pattern}'");
         }
 
-        // Extract captured groups
-        foreach ($matches as $key => $value) {
-            if (is_string($key)) { // Only get named capture groups
-                $components[$key] = $value;
-            }
-        }
+        return $this->normalizeParsedComponents($matches);
+    }
 
-        // Ensure sequence is an integer, if present
+    /**
+     * Convert placeholders to regex patterns
+     *
+     * @param string $pattern Escaped pattern
+     * @return string Regex pattern
+     */
+    protected function convertPlaceholdersToRegex(string $pattern): string
+    {
+        $replacements = [
+            '\{TYPE\}' => '(?<type>[A-Z0-9]+)',
+            '\{LOCATION\}' => '(?<location>[A-Z0-9]+)',
+            '\{DATE:([a-zA-Z0-9]+)\}' => '(?<date>[0-9A-Za-z]+)',
+            '\{DATE\}' => '(?<date>[0-9A-Za-z]+)',
+            '\{TIME:([a-zA-Z0-9]+)\}' => '(?<time>[0-9]+)',
+            '\{TIME\}' => '(?<time>[0-9]+)',
+            '\{SEQUENCE:(\d+)\}' => '(?<sequence>[0-9]+)',
+            '\{SEQUENCE\}' => '(?<sequence>[0-9]+)',
+            '\{RANDOM:(\d+)\}' => '(?<random>[A-Za-z0-9]+)',
+            '\{UUID\}' => '(?<uuid>[0-9a-fA-F-]{36})',
+        ];
+
+        return strtr($pattern, $replacements);
+    }
+
+    /**
+     * Normalize parsed components
+     *
+     * @param array $matches Regex matches
+     * @return array Normalized components
+     */
+    protected function normalizeParsedComponents(array $matches): array
+    {
+        $components = array_filter($matches, 'is_string', ARRAY_FILTER_USE_KEY);
+
         if (isset($components['sequence'])) {
             $components['sequence'] = (int)$components['sequence'];
         }
 
-        // Ensure all expected components from pattern are present in parsed array
-        // (This can be more robust by matching actual placeholders in the pattern)
-        if (!isset($components['type'])) $components['type'] = $this->type;
-        if (!isset($components['location'])) $components['location'] = $this->location;
-
+        $components['type'] ??= $this->type;
+        $components['location'] ??= $this->location;
 
         return $components;
     }
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | Fluent Configuration Setters
-    |--------------------------------------------------------------------------
-    | These methods allow chaining configuration calls for a single generation.
-    */
+    // Fluent Configuration Setters
+    // ----------------------------
 
     public function setType(string $type): self
     {
@@ -482,8 +523,7 @@ class CodeGenerator
     public function pattern(string $pattern): self
     {
         $this->pattern = $pattern;
-        // Re-evaluate useSequence based on new pattern
-        $this->useSequence = str_contains($this->pattern, '{SEQUENCE}');
+        $this->useSequence = str_contains($pattern, '{SEQUENCE}');
         return $this;
     }
 

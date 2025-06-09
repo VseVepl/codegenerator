@@ -1,25 +1,25 @@
 <?php
 
-namespace VsE\Codegenerator\Facades;
+namespace Vsent\Codegenerator\Facades; // CORRECTED: Changed 'vsent' to 'Vsent' to match PSR-4 and composer.json
 
 use Illuminate\Support\Facades\Facade;
-use VsE\Codegenerator\CodeGenerator as BaseCodeGenerator; // Alias the base class
+use Vsent\Codegenerator\CodeGenerator as BaseCodeGenerator; // CORRECTED: Changed 'vsent' to 'Vsent'
 
 /**
  * @method static string generateFor(string $codeTypeKey, array $overrides = [])
- * @method static \VsE\Codegenerator\CodeGenerator setType(string $type)
- * @method static \VsE\Codegenerator\CodeGenerator setLocation(string $location)
- * @method static \VsE\Codegenerator\CodeGenerator setSequenceLength(int $length)
- * @method static \VsE\Codegenerator\CodeGenerator setDateFormat(string $format)
- * @method static \VsE\Codegenerator\CodeGenerator setTimeFormat(string $format)
- * @method static \VsE\Codegenerator\CodeGenerator setCodeLength(?int $length)
- * @method static \VsE\Codegenerator\CodeGenerator setMaxAttempts(int $attempts)
- * @method static \VsE\Codegenerator\CodeGenerator setRetryDelay(int $milliseconds)
- * @method static \VsE\Codegenerator\CodeGenerator pattern(string $pattern)
- * @method static \VsE\Codegenerator\CodeGenerator useSequence(bool $use)
+ * @method static \Vsent\Codegenerator\CodeGenerator setType(string $type) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator setLocation(string $location) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator setSequenceLength(int $length) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator setDateFormat(string $format) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator setTimeFormat(string $format) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator setCodeLength(?int $length) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator setMaxAttempts(int $attempts) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator setRetryDelay(int $milliseconds) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator pattern(string $pattern) // CORRECTED: Changed 'vsent' to 'Vsent'
+ * @method static \Vsent\Codegenerator\CodeGenerator useSequence(bool $use) // CORRECTED: Changed 'vsent' to 'Vsent'
  * @method static bool confirmUsage(string $code)
  *
- * @see \VsE\Codegenerator\CodeGenerator
+ * @see \Vsent\Codegenerator\CodeGenerator // CORRECTED: Changed 'vsent' to 'Vsent'
  */
 class CodeGenerator extends Facade
 {
@@ -40,11 +40,9 @@ class CodeGenerator extends Facade
     public static function generateFor(string $codeTypeKey, array $overrides = []): string
     {
         /** @var BaseCodeGenerator $instance */
-        $instance = static::getFacadeRoot();
-
-        // Reload default configuration to ensure a clean state for this generation.
-        // This is important when reusing the facade instance in a single request.
-        $instance = new BaseCodeGenerator(); // Create a fresh instance for each `generateFor` call
+        // Create a fresh instance for each `generateFor` call to ensure a clean state
+        // and avoid leftover fluent configurations from previous calls.
+        $instance = new BaseCodeGenerator(); // This instantiation is correct and uses the aliased class
 
         // Check if $codeTypeKey is a predefined pattern key from the config
         if (config()->has('codegenerator.patterns.' . $codeTypeKey)) {

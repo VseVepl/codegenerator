@@ -1,8 +1,7 @@
 {
-    "name": "vse/codegenerator",
+    "name": "vsent/codegenerator",
     "description": "A robust, flexible, and pattern-based unique code generator for Laravel applications.",
     "type": "laravel-package",
-    "version": "1.0.0",
     "keywords": [
         "laravel",
         "code-generator",
@@ -27,16 +26,16 @@
     },
     "autoload": {
         "psr-4": {
-            "VsE\\Codegenerator\\": "src/"
+            "Vsent\\Codegenerator\\": "src/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "VsE\\Codegenerator\\CodeGeneratorServiceProvider"
+                "Vsent\\Codegenerator\\CodeGeneratorServiceProvider"
             ],
             "aliases": {
-                "CodeGenerator": "VsE\\Codegenerator\\Facades\\CodeGenerator"
+                "CodeGenerator": "Vsent\\Codegenerator\\Facades\\CodeGenerator"
             }
         }
     },

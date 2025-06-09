@@ -1,51 +1,110 @@
 <?php
 
-namespace VsE\Codegenerator;
+namespace Vsent\CodeGenerator;
 
 use Illuminate\Support\ServiceProvider;
-use VsE\Codegenerator\CodeGenerator;
+use Vsent\CodeGenerator\CodeGenerator;
 
+/**
+ * Laravel Service Provider for Code Generator Package
+ *
+ * Registers and bootstraps the code generation services with the Laravel application.
+ * Handles package configuration merging, service binding, and asset publishing.
+ */
 class CodeGeneratorServiceProvider extends ServiceProvider
 {
     /**
-     * Register any application services.
+     * Package name for asset publishing
+     */
+    protected const PACKAGE_NAME = 'codegenerator';
+
+    /**
+     * Register bindings in the service container.
+     *
+     * This method:
+     * - Merges package configuration with application config
+     * - Registers the CodeGenerator as a singleton service
+     * - Sets up facade aliases
      *
      * @return void
      */
     public function register(): void
     {
-        // Merge package's default configuration with user's published configuration
-        $this->mergeConfigFrom(
-            __DIR__ . '/../../config/codegenerator.php',
-            'codegenerator'
-        );
-
-        // Bind the CodeGenerator class to the service container as a singleton.
-        // This ensures that the same instance is used throughout the application,
-        // which can be important for maintaining internal state if needed (though
-        // current design is mostly stateless per generation).
-        $this->app->singleton('code-generator', function ($app) {
-            return new CodeGenerator();
-        });
+        $this->mergeConfiguration();
+        $this->registerServices();
     }
 
     /**
-     * Bootstrap any application services.
+     * Bootstrap package services.
+     *
+     * Handles:
+     * - Publishing configuration files
+     * - Publishing database migrations
+     * - Registering console commands (if any)
      *
      * @return void
      */
     public function boot(): void
     {
-        // Publish the configuration file to the application's config directory.
-        // This allows users to customize the generator's behavior.
-        $this->publishes([
-            __DIR__ . '/../../config/codegenerator.php' => config_path('codegenerator.php'),
-        ], 'codegenerator-config');
+        $this->publishAssets();
+    }
 
-        // Publish the migration file for the code_sequences table.
-        // This ensures the necessary database table can be created by the user.
+    /**
+     * Merge package configuration with application config
+     *
+     * @return void
+     */
+    protected function mergeConfiguration(): void
+    {
+        $this->mergeConfigFrom(
+            $this->packagePath('config/codegenerator.php'),
+            self::PACKAGE_NAME
+        );
+    }
+
+    /**
+     * Register package services and facades
+     *
+     * @return void
+     */
+    protected function registerServices(): void
+    {
+        // Register primary generator service
+        $this->app->singleton(self::PACKAGE_NAME, function ($app) {
+            return new CodeGenerator();
+        });
+
+        // Register facade alias
+        $this->app->alias(self::PACKAGE_NAME, CodeGenerator::class);
+    }
+
+    /**
+     * Publish package assets
+     *
+     * @return void
+     */
+    protected function publishAssets(): void
+    {
+        // Publish configuration
         $this->publishes([
-            __DIR__ . '/../../database/migrations/2025_06_09_000000_create_code_sequences_table.php' => database_path('migrations/' . date('Y_m_d_His', time()) . '_create_code_sequences_table.php'),
-        ], 'codegenerator-migrations');
+            $this->packagePath('config/codegenerator.php') => config_path('codegenerator.php'),
+        ], self::PACKAGE_NAME . '-config');
+
+        // Publish migrations
+        $this->publishes([
+            $this->packagePath('database/migrations/create_code_sequences_table.php.stub') =>
+            database_path('migrations/' . date('Y_m_d_His') . '_create_code_sequences_table.php'),
+        ], self::PACKAGE_NAME . '-migrations');
+    }
+
+    /**
+     * Get full package path for a relative file
+     *
+     * @param string $path Relative path from package root
+     * @return string Absolute path
+     */
+    protected function packagePath(string $path): string
+    {
+        return __DIR__ . '/../../' . $path;
     }
 }

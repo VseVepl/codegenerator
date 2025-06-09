@@ -9,7 +9,7 @@ Add the following to your main composer.json file in the autoload section:
 "autoload": {
     "psr-4": {
         "App\\": "app/",
-        "VsE\\Codegenerator\\": "packages/vse/codegenerator/src/" // Add this line
+        "vsent\\\Codegenerator\\": "packages/vse/codegenerator/src/" // Add this line
     }
 },
 "repositories": [
@@ -47,7 +47,7 @@ You can use the CodeGenerator Facade to generate codes.
 1. Generating a Predefined Code Type
 This is the most common and recommended way to generate codes, using patterns defined in your config/codegenerator.php.
 
-use VsE\Codegenerator\Facades\CodeGenerator;
+use vsent\\Codegenerator\Facades\CodeGenerator;
 
 // Generate an Order Code (uses 'order' pattern from config)
 try {
@@ -77,7 +77,7 @@ try {
 2. Generating with Runtime Overrides
 You can temporarily override specific configuration settings for a single generation call.
 
-use VsE\Codegenerator\Facades\CodeGenerator;
+use vsent\\Codegenerator\Facades\CodeGenerator;
 
 // Generate a Purchase Order code, but specify a different location for this instance
 try {
@@ -93,7 +93,7 @@ try {
 3. Generating with an Inline (Ad-Hoc) Pattern
 For one-off or dynamic code structures not defined in the config, you can pass the pattern directly.
 
-use VsE\Codegenerator\Facades\CodeGenerator;
+use vsent\\Codegenerator\Facades\CodeGenerator;
 
 // Generate a custom short code for an event registration
 try {
@@ -109,7 +109,7 @@ try {
 4. Confirming Usage for Sequential Codes (Crucial!)
 For any code generated using the {SEQUENCE} placeholder, it's CRUCIAL to call confirmUsage() once the code has been successfully processed and committed in your application (e.g., after saving an order to the database). This updates the sequence in the code_sequences table, ensuring proper sequential numbering and preventing gaps in your confirmed sequences if a generated code isn't actually used.
 
-use VsE\Codegenerator\Facades\CodeGenerator;
+use vsent\\Codegenerator\Facades\CodeGenerator;
 use Illuminate\Support\Facades\DB; // Example of wrapping in a transaction
 
 try {
